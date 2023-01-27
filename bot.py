@@ -1,8 +1,10 @@
-
 import asyncio
+import subprocess
 
 import discord
 import youtube_dl
+from yt_dlp import YoutubeDL
+
 # Suppress noise about console usage from errors
 youtube_dl.utils.bug_reports_message = lambda: ''
 
@@ -17,7 +19,7 @@ ytdl_format_options = {
     'quiet': True,
     'no_warnings': True,
     'default_search': 'auto',
-    'source_address': '0.0.0.0' # bind to ipv4 since ipv6 addresses cause issues sometimes
+    'source_address': '0.0.0.0'  # bind to ipv4 since ipv6 addresses cause issues sometimes
 }
 
 ffmpeg_options = {
@@ -25,7 +27,8 @@ ffmpeg_options = {
 }
 
 ytdl = youtube_dl.YoutubeDL(ytdl_format_options)
-
+playlist = []
+VoiCE = 1056658567668715525
 
 class YTDLSource(discord.PCMVolumeTransformer):
     def __init__(self, source, *, data, volume=0.5):
@@ -51,10 +54,30 @@ class YTDLSource(discord.PCMVolumeTransformer):
 
 client = discord.Client(intents=discord.Intents.all())
 
+
 @client.event
 async def on_ready():
     # 起動したらターミナルにログイン通知が表示される
     print('ログインしました')
+
+def play_next(message):
+        video_url = str(playlist[0])
+        playlist.pop(0)
+        # youtubeから音楽をダウンロードする
+        someFilename = subprocess.getoutput(f'yt-dlp --print filename {video_url}')
+        ydl_video_opts = {
+            'outtmpl': someFilename,
+            'format': 'bestaudio'
+        }
+        with YoutubeDL(ydl_video_opts) as ydl:
+            ydl.download(video_url)
+            # 再生する
+            print(someFilename)
+            message.guild.voice_client.play(discord.FFmpegPCMAudio(str(someFilename)),after=lambda e: play_next(message))
+            print('ok')
+
+
+
 
 @client.event
 async def on_message(message: discord.Message):
@@ -69,6 +92,7 @@ async def on_message(message: discord.Message):
         # ボイスチャンネルに接続する
         await message.author.voice.channel.connect()
         await message.channel.send("接続しました。")
+        return
 
     elif message.content == "!leave":
         if message.guild.voice_client is None:
@@ -79,6 +103,7 @@ async def on_message(message: discord.Message):
         await message.guild.voice_client.disconnect()
 
         await message.channel.send("切断しました。")
+        return
 
     elif message.content.startswith("!play "):
         if message.guild.voice_client is None:
@@ -86,22 +111,20 @@ async def on_message(message: discord.Message):
             return
         # 再生中の場合は再生しない
 
+        url = message.content[6:]
         if message.guild.voice_client.is_playing():
             await message.channel.send("再生中です。")
-            return
+            playlist.append(url)
+            await message.channel.send(url + "をキューに追加しました。")
 
-        url = message.content[6:]
-        # youtubeから音楽をダウンロードする
-        player = await YTDLSource.from_url(url, loop=client.loop)
+        playlist.append(url)
+        play_next(message)
+
+        await message.channel.send("全ての曲が再生されました。")
 
 
 
-        # 再生する
-        await message.guild.voice_client.play(player)
-
-        await message.channel.send('{} を再生します。'.format(player.title))
-
-    elif message.content == "!stop":
+    elif message.content == "!skip":
         if message.guild.voice_client is None:
             await message.channel.send("接続していません。")
             return
@@ -114,6 +137,9 @@ async def on_message(message: discord.Message):
         message.guild.voice_client.stop()
 
         await message.channel.send("ストップしました。")
+        return
 
 
 client.run("")
+
+
